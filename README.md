@@ -656,6 +656,25 @@ starbox-clone/
 
 ---
 
+### 14.1 仓库里**没有**的东西（以及为什么）
+
+克隆下来发现少了几个目录，这是有意的：
+
+| 缺的东西 | 为什么不在仓库里 | 怎么补 |
+|---|---|---|
+| `data/`、`data-demo/` | 真实客户会话、资产、台账、账单。提交上去等于公开客户资料 | 首次启动自动创建空库；要历史数据用备份包恢复 |
+| `config.json` | 含上游 `apiKey` 与初始密码 | `cp config.example.json config.json` 后填 |
+| `report/` | 生成的体检报告、定价方案、截图（含真实余额与账号） | 用 `scripts/build-release-readiness.mjs` 现生成 |
+| `public/wb/` | **另一个产品**的静态子站（品牌内容工作台，约 10MB，含第三方品牌资料），独立维护 | 单独部署；放到 `public/wb/` 即自动挂载到 `/wb/` |
+| `backups/` | 备份产物，含完整数据 | `scripts/backup.sh` 现生成 |
+| 历史归档会话 | 从原平台导入的一次性数据，属客户内容 | `scripts/import-starbox.mjs`（需自备导出包） |
+
+需要种子数据（38 个 Agent + 1144 条选题）时：
+
+```bash
+node seed.js /path/to/starbox_assets      # 或 STARBOX_ASSETS=/path node seed.js
+```
+
 ## 十五、部署到服务器
 
 三种路径，按"要不要今天就能发出去"选：
