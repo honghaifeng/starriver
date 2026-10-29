@@ -1,20 +1,29 @@
+/* 暗色（默认主题）。
+   ⚠️ 这里的值必须写死，不能写 var(--同名)。
+   `--sub:var(--sub)` 这种自引用在 CSS 里是「周而复始、无效值」，
+   浏览器直接把该自定义属性判为 invalid —— 不报错、不告警，
+   所有引用它的地方静默回落。曾经有 27 个变量是这么坏的：
+   --sub（次级文字）→ 灰色全变成正文色；--input-bg → 输入框没底；
+   --acc-solid → 主按钮没底；--pop-shadow → 弹层没阴影；--toast-bg → 提示条透明。
+   改主题只改这一块，别在别处覆盖。 */
 :root{
-  --bg:#0B1020; --panel:#121A30; --line:rgba(255,255,255,.09); --txt:rgba(240,244,255,.88); --sub:var(--conv-text);
+  --bg:#0B1020; --panel:#121A30; --line:rgba(255,255,255,.09); --txt:rgba(240,244,255,.88);
+  --sub:#8A93AD; --conv-text:#8A93AD; --muted:#6B7390; --note-text:#7C86A2; --rec-go:#5A6280;
   --acc:#7FA8FF; --acc2:#9A8CFF; --acc-soft:rgba(127,168,255,.13); --danger:#FF8375;
-  --on-acc:#0A1226; --acc-soft-hover:var(--acc-soft-hover); --acc-tint:var(--acc-tint); --acc-line:var(--acc-line);
-  --acc-chip-bg:rgba(127,168,255,.15); --acc-chip-text:var(--acc-chip-text); --acc-solid:var(--acc-solid); --acc-solid-text:var(--acc-solid-text);
-  --banner-link:var(--banner-link); --disabled-acc:var(--disabled-acc);
-  --acc-shadow:var(--acc-shadow); --acc-shadow-hover:var(--acc-shadow-hover); --pop-shadow:var(--pop-shadow);
-  --input-bg:var(--input-bg); --chip-bg:var(--chip-bg); --head-bg:rgba(255,255,255,.06);
-  --row-alt:var(--row-alt); --row-hover:rgba(255,255,255,.05);
-  --overlay-strong:var(--overlay-strong); --overlay-line:var(--overlay-line); --scrollbar:var(--scrollbar);
+  --on-acc:#0A1226;
+  --acc-soft-hover:rgba(127,168,255,.20); --acc-tint:rgba(127,168,255,.06); --acc-line:rgba(127,168,255,.30);
+  --acc-chip-bg:rgba(127,168,255,.15); --acc-chip-text:#AFC8FF; --acc-solid:#7FA8FF; --acc-solid-text:#0A1226;
+  --banner-link:#9FC0FF; --disabled-acc:rgba(127,168,255,.42);
+  --acc-shadow:rgba(127,168,255,.22); --acc-shadow-hover:rgba(127,168,255,.30); --pop-shadow:rgba(0,0,0,.50);
+  --input-bg:#0F1730; --chip-bg:rgba(255,255,255,.05); --head-bg:rgba(255,255,255,.06);
+  --row-alt:rgba(255,255,255,.025); --row-hover:rgba(255,255,255,.05);
+  --overlay-strong:rgba(255,255,255,.06); --overlay-line:rgba(255,255,255,.12); --scrollbar:rgba(255,255,255,.16);
   --amber-bg:rgba(240,198,116,.12); --amber-line:rgba(240,198,116,.3); --amber-text:#F0C674;
   --danger-bg:rgba(255,131,117,.14); --danger-bg-soft:rgba(255,131,117,.08); --danger-line:rgba(255,131,117,.3); --danger-text:var(--danger);
-  --pink-bg:var(--pink-bg); --pink-text:var(--pink-text); --purple-bg:var(--purple-bg); --purple-text:var(--purple-text);
+  --pink-bg:rgba(255,131,181,.14); --pink-text:#FF9DC0; --purple-bg:rgba(160,140,255,.14); --purple-text:#B9A8FF;
   --green-bg:rgba(110,214,164,.14); --green-text:#6ED6A4;
-  --note-text:var(--note-text); --conv-text:var(--conv-text); --muted:var(--muted); --rec-go:var(--rec-go);
-  --toast-bg:var(--toast-bg);
-  --login-grad:var(--login-grad);
+  --toast-bg:#1B2440;
+  --login-grad:linear-gradient(160deg,#0E1526,#141C33);
   --r:12px; --shadow:0 1px 3px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.04);
 }
 *{box-sizing:border-box;margin:0;padding:0}
