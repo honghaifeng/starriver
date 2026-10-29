@@ -355,6 +355,10 @@ input,textarea,select{font-family:inherit;font-size:14px;color:var(--txt)}
 .tool-card.err{background:var(--danger-bg);border-color:var(--danger-line);color:var(--danger)}
 .tool-card img{width:100%;max-width:320px;border-radius:8px;display:block}
 .tool-card .tc-dot{width:8px;height:8px;border-radius:50%;background:var(--amber-text);animation:pulse 1s infinite}
+/* 单次输出上限：续写提示 / 截断警告 */
+.cont-note{font-size:12px;color:var(--sub);background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:7px 11px;max-width:460px}
+.cont-note.running{color:var(--amber-text);border-color:var(--amber-line);background:var(--amber-bg)}
+.cont-note.warn{color:var(--danger);border-color:var(--danger-line);background:var(--danger-bg);line-height:1.6}
 @keyframes pulse{50%{opacity:.3}}
 .tool-card .tc-prompt{color:var(--sub);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
 

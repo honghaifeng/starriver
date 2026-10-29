@@ -215,6 +215,20 @@ function allModels() {
 function buildSystemPrompt(agent) {
   if (!agent) return '';
   let s = agent.instruction;
+  // 两条平台级硬约束，所有 Agent 都适用（2026-10-29 加）。
+  // 起因：用户要 5 篇，单次输出上限 8192 token 在半句话处截断，只写出 3 篇；且模型自己编了产品物理属性。
+  s += `
+
+# 输出长度纪律（平台硬约束，优先于上文任何"完整输出"要求）
+- 单次回复有硬上限（约 8000 token）。写到一半会被直接切断，用户拿到的是残稿，且平台不会自动重来。
+- 一次回复只完整交付 1 篇。用户要 N 篇时：先用一行一条列排期（标题 + 角度），再写第 1 篇，末尾写「回复"继续"写第 2 篇」。
+- 长文优先保证主体完整：宁可少写一段收尾，也不要写到一半断掉。
+
+# 事实纪律（违反即返工）
+- 只允许写知识库里明确记载的产品事实。
+- 知识库没有记载的物理属性——胶囊大小/形状、瓶身尺寸/比例/重量、气味、口感、包装材质——一律不许写，也不许在配图提示词里指定。
+- 「小遗憾/不完美」必须来自知识库的「可写遗憾清单」，同一批次各篇不得重复同一条；清单里没有的，就不要写产品缺点。
+- 不要把选题库里的疑问（例如"胶囊太大咽不下去怎么办"）当成事实写进正文。`;
   if (agent.knowledgeBases && agent.knowledgeBases.length) {
     let kbs = '', used = 0;
     for (const k of agent.knowledgeBases) {
@@ -245,7 +259,8 @@ async function upstreamChat(messages, model, temperature, topP, stream) {
   const body = {
     model: model || cfg.defaultModel,
     messages,
-    max_tokens: cfg.maxTokens,
+    // 单次输出上限：改这个值要重启。SB_MAX_TOKENS 只用于本地/排障时压低上限做截断自测。
+    max_tokens: +(process.env.SB_MAX_TOKENS || cfg.maxTokens),
     stream: !!stream
   };
   // Claude 系列在网关上会拒「temperature 和 top_p 同时给」（400 cannot both be specified）。
@@ -337,7 +352,7 @@ async function pumpStream({ msgs, model, temperature, topP, tap, onDelta, onThin
   }
   const reader = up.body.getReader();
   const dec = new TextDecoder();
-  let buf = '', raw = '', usage = null, thinkRaw = '';
+  let buf = '', raw = '', usage = null, thinkRaw = '', finish = null;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -350,7 +365,11 @@ async function pumpStream({ msgs, model, temperature, topP, tap, onDelta, onThin
       if (payload === '[DONE]') continue;
       let j; try { j = JSON.parse(payload); } catch (e) { continue; }
       if (j.usage) usage = j.usage;
-      const d = j.choices && j.choices[0] && j.choices[0].delta;
+      const ch0 = j.choices && j.choices[0];
+      // finish_reason 是「有没有被截断」的唯一可靠信号：length = 撞到 max_tokens，
+      // 正文会在半句话处断掉。以前这里整个丢掉了，所以截断是静默的。
+      if (ch0 && ch0.finish_reason) finish = ch0.finish_reason;
+      const d = ch0 && ch0.delta;
       if (!d) continue;
       const rsn = d.reasoning_content || d.reasoning || d.thinking;
       if (rsn && onThink) {
@@ -369,7 +388,7 @@ async function pumpStream({ msgs, model, temperature, topP, tap, onDelta, onThin
     }
   }
   if (tap) { const rest = tap.flush(); if (rest) onDelta(rest); }
-  return { raw, usage, think: thinkRaw };
+  return { raw, usage, think: thinkRaw, finish };
 }
 
 // ---------- 附件读取（长附件只给摘要，靠 read_file 按需取） ----------
@@ -494,6 +513,15 @@ async function handleChat(req, res, body) {
   let composed = userText.trim() || '（请阅读附件）';
   for (const up of uploads) composed += attachBlock(up);
   if (refIds.length) composed += `\n\n【参考图】用户已选 ${refIds.length} 张图作为生成参考，调用 generate_image 时会自动带入。`;
+  // 知识库 C01 要求「调用 random-number 工具」，但平台没有这个工具 ——
+  // 模型只能自己编一个 R（如 R=4829），抽取其实是假的，同一模型容易反复抽到同一批 T/V/J/E，内容同质化。
+  // 这里每轮真生成一组，直接注入，让随机可复现、可审计。
+  if (agent && /random-number|random_number/.test(String(agent.instruction || ''))) {
+    const rs = Array.from({ length: 12 }, () => 1000 + Math.floor(Math.random() * 9000));
+    composed += `\n\n【本次随机数（平台已生成，直接取用）】${rs.map((n, i) => 'R' + (i + 1) + '=' + n).join(' ')}\n` +
+      '用法：按 C01 的顺序依次取 R1、R2…（T→R1，各 V 维度依次 R2、R3…，J→下一个，E→下一个，回应方向/框架/样本各用一个）。\n' +
+      '**禁止自己编随机数，也不要把同一个 R 重复用于两个不同维度。**';
+  }
 
   const billCtx = {
     memberId: me.memberId || null,
@@ -538,6 +566,39 @@ async function handleChat(req, res, body) {
       estOutChars: visible.length
     });
     billedFirst = true;
+
+    // 撞到单次输出上限（finish_reason = length）→ 自动续写。
+    // 不续写的话，长文（多篇稿 / 长报告）会在半句话处直接断掉，用户拿到残稿还以为写完了。
+    // 续写用的是同一套 messages + 已写正文，指令里明确「从断点接着写、不要重开」。
+    const uCont = { in: 0, out: 0, credits: 0 };
+    let contRounds = 0;
+    const maxCont = Math.max(0, +(process.env.SB_MAX_CONTINUE || cfg.maxContinueRounds || 2));
+    let finish = r1.finish;
+    while (finish === 'length' && contRounds < maxCont && visible.trim()) {
+      contRounds++;
+      send({ cont: { round: contRounds, max: maxCont } });
+      const tail = visible.slice(-600);
+      const msgsC = msgs.concat([
+        { role: 'assistant', content: visible },
+        {
+          role: 'user', content: '【续写指令】上一条回复因为单次输出上限被硬切断，最后一段如下：\n' +
+            tail + '\n\n请从断点处最后一个字之后继续写，紧接原文，不要重复已有内容、不要重新开头、不要加任何说明/标题/总结。'
+        }
+      ]);
+      const rc = await pumpStream({
+        msgs: msgsC, model, temperature: agent ? agent.temperature : 0.8, topP: agent ? agent.topP : null,
+        tap, onDelta: emit, onThink: emitThink
+      });
+      const uc = store.recordUsage(model, rc.usage, {
+        kind: 'chat', agentId: agent ? agent.id : null, agentName: agent ? agent.name : null,
+        boxId: billCtx.boxId, memberId: billCtx.memberId, memberName: billCtx.memberName, ownerId: billCtx.ownerId,
+        conversationId: conv.id, note: '续写第 ' + contRounds + ' 段（撞上限）'
+      });
+      uCont.in += uc.in || 0; uCont.out += uc.out || 0; uCont.credits += uc.credits || 0;
+      finish = rc.finish;
+    }
+    // 续写额度用完了还是 length：这一篇确实没写完，必须明确告诉用户，不能装作完整
+    const truncated = finish === 'length';
 
     const toolAssets = [], subAgents = [];
     let u2 = { in: 0, out: 0, credits: 0 };
@@ -608,9 +669,10 @@ async function handleChat(req, res, body) {
       send({ tool: { name: '__summary', status: 'done' } });
     }
 
-    const usage = { in: (u1.in || 0) + (u2.in || 0), out: (u1.out || 0) + (u2.out || 0), credits: (u1.credits || 0) + (u2.credits || 0) };
+    const usage = { in: (u1.in || 0) + (u2.in || 0) + uCont.in, out: (u1.out || 0) + (u2.out || 0) + uCont.out, credits: Math.round(((u1.credits || 0) + (u2.credits || 0) + uCont.credits) * 100) / 100 };
     conv.messages.push({
       role: 'assistant', content: visible, ts: now(), model, usage,
+      truncated: truncated || undefined, contRounds: contRounds || undefined,
       think: thinkText.trim() ? thinkText : undefined,
       toolAssets: toolAssets.length ? toolAssets : undefined,
       subAgents: subAgents.length ? subAgents : undefined
@@ -632,6 +694,7 @@ async function handleChat(req, res, body) {
     store.save();
     send({
       done: true, conversationId: conv.id, usage, assetId,
+      truncated, contRounds,
       toolCount: toolAssets.length, subCount: subAgents.length,
       credits: usage.credits, balance: store.data.org.balance
     });

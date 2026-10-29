@@ -1008,6 +1008,8 @@ async function sendChat() {
   const paintBody = makeMdPainter(a.body);
 
   let full = '', err = null, thinkText = '';
+  let contN = 0;              // 撞到单次输出上限后自动续写了几段
+  let contNote = null;        // 续写/截断提示卡
   const pendingTools = [];
   const subCards = [];
   const scroll = $('#chatScroll');
@@ -1058,6 +1060,17 @@ async function sendChat() {
         if (ev.delta) {
           full += ev.delta;
           paintBody(full);
+          scroll.scrollTop = scroll.scrollHeight;
+        }
+        if (ev.cont) {
+          // 写到上限被切断 → 服务端正在接着写。用户必须知道「刚才那下断开」不是他看错了
+          contN = ev.cont.round || contN + 1;
+          if (!contNote) {
+            contNote = document.createElement('div');
+            contNote.className = 'cont-note running';
+            a.tools.appendChild(contNote);
+          }
+          contNote.textContent = `触到单次输出上限，正在自动续写第 ${contN} 段…`;
           scroll.scrollTop = scroll.scrollHeight;
         }
         if (ev.sub) {
@@ -1137,6 +1150,16 @@ async function sendChat() {
           if (ev.assetId) toast('正文已自动存入 Asset');
           if (ev.toolCount) toast('本次生成 ' + ev.toolCount + ' 个素材，已存入 Asset');
           if (ev.subCount) toast('本次调用了 ' + ev.subCount + ' 个子 Agent');
+          // 截断必须说清楚：续写到顶仍未写完，用户要自己决定「继续」还是分篇
+          if (ev.truncated) {
+            const n = document.createElement('div');
+            n.className = 'cont-note warn';
+            n.textContent = `⚠️ 这次内容很长，自动续写了 ${ev.contRounds || contN || 0} 段后仍未写完（可能停在半句话）。回复「继续」接着写，或让我分篇输出（一次一篇更稳）。`;
+            a.tools.appendChild(n);
+          } else if (contNote) {
+            contNote.className = 'cont-note';
+            contNote.textContent = `已自动续写 ${contN} 段（撞到单次输出上限）`;
+          }
           loadConvList();
         }
       }
