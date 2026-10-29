@@ -9,6 +9,9 @@ import { USER, PASS } from './_cred.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const BASE = process.env.BASE || 'http://127.0.0.1:7777';
+// 数据目录跟随服务端：体验库（SB_DATA=data-demo）跑自测时不能去 data/ 里找文件，
+// 否则「文件没落盘」这类断言会假红 —— 它检的是另一个目录。
+const DATADIR = process.env.SB_DATA ? path.resolve(process.env.SB_DATA) : path.join(ROOT, 'data');
 
 let cookie = '';
 // 会话基线 / 本次自测新建的会话：chat() 在模块作用域，必须声明在这一层
@@ -117,7 +120,7 @@ async function main() {
     const j = await jpost('/api/upload', { name: 'selftest.txt', mime: 'text/plain', data: Buffer.from(content).toString('base64') });
     txtUpload = j.upload;
     assert(txtUpload.chars > 10, '正文没抽出来：' + txtUpload.chars + ' 字');
-    assert(fs.existsSync(path.join(ROOT, 'data/uploads', txtUpload.file)), '文件没落盘');
+    assert(fs.existsSync(path.join(DATADIR, 'uploads', txtUpload.file)), '文件没落盘');
     return txtUpload.chars + ' 字 · ' + txtUpload.bytes + 'B';
   });
 
@@ -155,7 +158,7 @@ async function main() {
     assert(r.text.indexOf('<tool>') < 0, '工具标签泄漏到可见文本里了！');
     const asset = done[0].asset;
     assert(asset && asset.url, '没拿到图片 URL');
-    const file = path.join(ROOT, 'data/images', path.basename(asset.url));
+    const file = path.join(DATADIR, 'images', path.basename(asset.url));
     assert(fs.existsSync(file) && fs.statSync(file).size > 20000, '图片没落盘或太小');
     imgAssetId = asset.id;
     return `${Math.round(fs.statSync(file).size / 1024)}KB · 工具调用 ${start.length} 次 · 可见文本 ${r.text.length} 字`;
@@ -166,7 +169,7 @@ async function main() {
     const j = await jpost('/api/image', { prompt: '保持参考图里的瓶型和构图，换成深绿丝绒背景，柔光', ratio: '3:4', refImageIds: [imgAssetId], title: '参考图自测' });
     assert(j.asset && j.asset.imageUrl, '没出图');
     assert(j.refCount >= 1, '参考图没被方舟接受（refCount=0）');
-    const f = path.join(ROOT, 'data/images', path.basename(j.asset.imageUrl));
+    const f = path.join(DATADIR, 'images', path.basename(j.asset.imageUrl));
     assert(fs.existsSync(f), '图没落盘');
     return `refCount=${j.refCount} · ${j.size}`;
   });
@@ -213,7 +216,7 @@ async function main() {
     const md = `# 抗衰补剂内容方案\n\n## 一、核心卖点\n\n- 成分纯度认证\n- 临床数据支撑\n\n**重点**：不要写成药品。\n\n## 二、标题备选\n\n1. 你为什么越补越累\n2. 三十岁后的第一条皱纹\n`;
     const j = await jpost('/api/docx', { title: '自测导出', content: md });
     assert(j.url && j.bytes > 2000, '导出失败：' + JSON.stringify(j).slice(0, 120));
-    const f = path.join(ROOT, 'data/exports', path.basename(j.url));
+    const f = path.join(DATADIR, 'exports', path.basename(j.url));
     assert(fs.existsSync(f), '导出文件不存在');
     const head = fs.readFileSync(f).subarray(0, 4);
     assert(head[0] === 0x50 && head[1] === 0x4b, '不是 zip（docx）头');
@@ -259,7 +262,7 @@ async function main() {
         await sleep(6000);
         const s = await jreq('/api/video/' + asset.id);
         if (s.asset.videoStatus === 'succeeded') {
-          const f = path.join(ROOT, 'data/videos', path.basename(s.asset.videoUrl));
+          const f = path.join(DATADIR, 'videos', path.basename(s.asset.videoUrl));
           assert(fs.existsSync(f) && fs.statSync(f).size > 100000, '视频没落盘');
           return `${Math.round(fs.statSync(f).size / 1024)}KB · ${s.asset.modelLabel} · 约 ${i * 6}s`;
         }

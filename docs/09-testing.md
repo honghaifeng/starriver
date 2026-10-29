@@ -4,12 +4,13 @@
 
 ## 1. 总览
 
-10 套脚本，**306 项断言**，当前 0 失败。
+10 套脚本，**373 项断言**，当前 0 失败。
 
 ```bash
 # 一把梭（约 10 分钟）
 for s in ui-smoke selftest verify-billing verify-sidebar verify-brand \
-         verify-ui-full verify-suspend verify-stream-md verify-kb-upload verify-tenancy; do
+         verify-ui-full verify-suspend verify-stream-md verify-kb-upload verify-tenancy \
+         verify-compliance verify-compliance-ui; do
   echo "=== $s"; node scripts/$s.mjs 2>&1 | tail -3
 done
 ```
@@ -19,10 +20,12 @@ done
 | `selftest.mjs` | 23 | 接口全链路（含真实出图） | ~2 min | 7777 |
 | `verify-tenancy.mjs` | 89 | 越权（自起临时空库） | ~20 s | 自建 |
 | `verify-sidebar.mjs` | 61 | 布局（浏览器） | ~30 s | 7777 |
+| `verify-compliance.mjs` | 46 | 违禁词引擎（纯函数 + HTTP） | ~2 s | 可选 |
 | `verify-brand.mjs` | 32 | 品牌与介绍页（浏览器） | ~15 s | 7777 |
 | `verify-billing.mjs` | 23 | 计费引擎 | ~10 s | 7777 + 库 |
 | `verify-ui-full.mjs` | 22 | 全页面巡检（浏览器） | ~40 s | 7777 |
 | `ui-smoke.mjs` | 21 | 真浏览器冒烟 | ~3 min | 7777 |
+| `verify-compliance-ui.mjs` | 21 | 体检条渲染与交互（浏览器） | ~15 s | 7777 |
 | `verify-suspend.mjs` | 19 | 挂起拦截（接口 + 浏览器） | ~30 s | 7777 |
 | `verify-stream-md.mjs` | 9 | 流式 Markdown | ~30 s | 7777 |
 | `verify-kb-upload.mjs` | 7 | 知识库上传 | ~20 s | 7777 |
@@ -40,6 +43,15 @@ done
 ```bash
 SB_DATA=/tmp/sb-test PORT=7790 node server.js > /tmp/t.log 2>&1 &
 BASE=http://127.0.0.1:7790 node scripts/selftest.mjs
+```
+
+5. **指到别的库时，两个环境变量必须一起给**：`SB_DATA`（脚本据此判断文件落在哪个目录）
+   和 `BASE`。只给 `BASE` 会让「文件没落盘」这类断言去错的目录里找东西，假红。
+6. **PDF 抽取要 pypdf**：系统自带的 `python3` 往往没装，`selftest` 的 PDF 用例会红。
+   装好之后用 `CB_PYTHON` 指过去（不要改代码）：
+
+```bash
+CB_PYTHON=/path/to/venv/bin/python node server.js
 ```
 
 ## 3. 各脚本在验什么
@@ -90,6 +102,25 @@ BASE=http://127.0.0.1:7790 node scripts/selftest.mjs
 - `verify-suspend`：挂起字段、发送 409、UI 灰显与一键解除、改名不改状态；
 - `verify-stream-md`：流式过程中 Markdown 逐段成型、刷新回放仍是结构；
 - `verify-kb-upload`：文件 → 正文 → 字数 → 删除闭环。
+
+### 3.5 `verify-compliance.mjs`（46）
+
+违禁词引擎的断言，**一半在验「不该报的不能报」**——这类检查器最大的风险是误报，
+一旦把「第一步」「科普」标红，用户就学会无视它，词表等于白做。
+
+- 该报的：抗炎 / 激素 / 医嘱（不只是「医生」）/ 痛经 / 三甲 + 临床；
+- 位置准：`samples[].start/end` 切回原文必须正好等于命中词；
+- 绕过手法：空格隔开、零宽字符、间隔点、全角数字都要能识别；
+- 不该报的：空文本、干净文案、科普/科学/科技、第一步/最后（绝对化误伤）、
+  重叠区间只报最长的一条（「妇科疾病」不再额外报「妇科」）；
+- 统计口径：同词多次合并、`count` 准确、样例最多 3 个、block 排在 warn 前面；
+- 开关：`absolute:false` / `hint:false` 各自生效；
+- 性能：2 万字 < 500ms（实测 4ms）；
+- HTTP（`--http <base>`）：未登录 401、空文本 400、返回 summary、词表条数一致。
+
+`verify-compliance-ui.mjs`（21）验界面：pass 只占一行、block 默认收起、点开有明细、
+高亮的是真违禁词、给的是替换建议、盒子有实际尺寸（防「渲染了但高度 0」）、
+点「让它按建议改写」会填进输入框但**不自动发送**、页面无 JS 报错。
 
 ## 4. 写新断言
 

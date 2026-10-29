@@ -11,6 +11,10 @@ const { writeDocx } = require('./lib/docx');
 const { TOOL_PROMPT, ToolTap, toolResultMessage } = require('./lib/chat-tools');
 const identity = require('./lib/identity');
 const refMedia = require('./lib/ref-media');
+const compliance = require('./lib/compliance');
+// 私有素材（图/视频/附件）→ 七牛私有空间签名地址；没配置时自动回落本地文件
+const srCdn = require('./lib/sr-cdn');
+function srCdnReady() { return process.env.SR_CDN_OFF !== '1' && srCdn.stat().ready; }
 const cfg = require('./config.json');
 
 // 数据目录可切换：体验环境用独立目录，真实数据一个字节都不碰
@@ -671,9 +675,24 @@ async function handleChat(req, res, body) {
     }
 
     const usage = { in: (u1.in || 0) + (u2.in || 0) + uCont.in, out: (u1.out || 0) + (u2.out || 0) + uCont.out, credits: Math.round(((u1.credits || 0) + (u2.credits || 0) + uCont.credits) * 100) / 100 };
+    // 写完当场体检：违禁词命中随消息一起存，前端直接在气泡下方展示，不用再点一次。
+    // 门槛 120 字：更短的基本是寒暄或追问，不是要发布的稿子，报了只会添噪音。
+    // 只存聚合结果（按词去重 + 前 3 个样例位置），逐字位置不落库，避免 db 膨胀。
+    let comp = null;
+    try {
+      if (visible.trim().length >= 120) {
+        const r = compliance.check(visible);
+        comp = {
+          level: r.level, total: r.total, counts: r.counts,
+          hits: r.hits.slice(0, 20), summary: compliance.summaryLine(r),
+          dictCount: r.dict.count
+        };
+      }
+    } catch (e) { comp = null; }
     conv.messages.push({
       role: 'assistant', content: visible, ts: now(), model, usage,
       truncated: truncated || undefined, contRounds: contRounds || undefined,
+      compliance: comp || undefined,
       think: thinkText.trim() ? thinkText : undefined,
       toolAssets: toolAssets.length ? toolAssets : undefined,
       subAgents: subAgents.length ? subAgents : undefined
@@ -696,6 +715,7 @@ async function handleChat(req, res, body) {
     send({
       done: true, conversationId: conv.id, usage, assetId,
       truncated, contRounds,
+      compliance: comp,
       toolCount: toolAssets.length, subCount: subAgents.length,
       credits: usage.credits, balance: store.data.org.balance
     });
@@ -1302,6 +1322,27 @@ async function route(req, res) {
     return;
   }
 
+  // --- 合规体检 ---
+  // 稿子能不能发，不该等客户打回来才知道。这里给两个出口：
+  //   POST /api/compliance/check  —— 扫任意一段文本（编辑器里手动查、外部稿子投稿前查）
+  //   GET  /api/compliance/dict   —— 词表本身，让人能核对「你凭什么说这个词不能写」
+  if (m === 'POST' && p === '/api/compliance/check') {
+    const b = await readBody(req);
+    const text = String(b.text || '');
+    if (!text.trim()) return json(res, 400, { error: '内容为空' });
+    if (text.length > 200000) return json(res, 400, { error: '文本过长（上限 20 万字）' });
+    const r = compliance.check(text, { absolute: b.absolute !== false, hint: b.hint !== false });
+    return json(res, 200, { result: r, summary: compliance.summaryLine(r) });
+  }
+  if (m === 'GET' && p === '/api/compliance/dict') {
+    const d = compliance.DICT;
+    return json(res, 200, {
+      meta: d.meta, cats: d.cats,
+      counts: { words: d.words.length, absolute: d.absolute.length, hintChars: d.hintChars.length },
+      words: d.words, absolute: d.absolute
+    });
+  }
+
   // --- 对话 ---
   if (m === 'POST' && p === '/api/chat') { const b = await readBody(req); return handleChat(req, res, b); }
   /**
@@ -1854,6 +1895,16 @@ function mediaOwner(p) {
 function serveMedia(req, res, p) {
   const r = mediaRoute(p);
   if (!r) { res.writeHead(404); return res.end(); }
+  // 私有素材放七牛私有空间，地址仍是我们自己的 /img/xxx：
+  // 鉴权在上面已经做完，这里只负责把字节送到 —— 302 到带有效期的签名地址。
+  // 缓存 10 分钟：远小于签名有效期（≥2h），既省掉重复请求，又不会拿到过期链接。
+  if (!r.download && srCdnReady()) {
+    const u = srCdn.urlFor(p);
+    if (u) {
+      res.writeHead(302, { Location: u, 'Cache-Control': 'private, max-age=600' });
+      return res.end();
+    }
+  }
   const f = path.join(r.dir, path.basename(p));
   if (!fs.existsSync(f)) { res.writeHead(404); return res.end(); }
   const size = fs.statSync(f).size;
@@ -1901,8 +1952,66 @@ function serveStatic(req, res) {
   res.end(fs.readFileSync(f));
 }
 
+// ---------------------------------------------------------------- 统一底座（逆龄观察数据服务）
+// 三个项目共用一套 DB / 知识库 / 七牛媒体：
+//   · 逆龄观察服务（service/app.py，Python 零依赖）是唯一的数据出口
+//   · 星河与工作台只做前端，数据一律走 HTTP 取，不各自维护一份快照
+// 端口默认 8098（8080 被 nginx 占了，不要再抢）
+// 默认关闭：没配 CB_BASE 就完全不改路由行为，避免底座没起时把自家接口代理成 502。
+const CB_BASE = process.env.CB_BASE || '';
+// 只代理「确实属于底座」的路径，避免和星河自己的 /api/guide、/api/search 之类撞名
+const CB_API_PATHS = new Set([
+  '/api/stats', '/api/list', '/api/item', '/api/raw', '/api/knowledge', '/api/report',
+  '/api/compare', '/api/top', '/api/comments', '/api/pending', '/api/raw_export',
+  '/api/export', '/api/xhs_archive', '/api/xhs_creators', '/api/kb_docs', '/api/kb_doc',
+  '/api/kb_media', '/api/kb_export', '/api/sql'
+]);
+function isBasePath(p) {
+  if (!CB_BASE) return false;
+  if (p.startsWith('/api/wb/') || p.startsWith('/api/cb/')) return true;
+  if (CB_API_PATHS.has(p)) return true;
+  return p === '/niling' || p.startsWith('/niling/') || p.startsWith('/note/') ||
+    p.startsWith('/kb/') || p.startsWith('/cdn/');
+}
+function proxyBase(req, res, pathname) {
+  let p = req.url;
+  // /api/cb/xxx → 底座的 /api/xxx；/niling/xxx → 底座的 /xxx
+  if (pathname.startsWith('/api/cb/')) p = p.replace(/^\/api\/cb/, '/api');
+  else if (pathname === '/niling' || pathname.startsWith('/niling/')) {
+    p = p.replace(/^\/niling/, '');
+    if (!p || p === '') p = '/';
+    if (p.startsWith('?')) p = '/' + p;
+  }
+  const target = new URL(CB_BASE);
+  const headers = Object.assign({}, req.headers, { host: target.host });
+  const up = http.request({
+    host: target.hostname,
+    port: target.port || 80,
+    path: p,
+    method: req.method,
+    headers
+  }, r => {
+    const h = Object.assign({}, r.headers);
+    res.writeHead(r.statusCode || 502, h);
+    r.pipe(res);
+  });
+  up.setTimeout(60000, () => { up.destroy(new Error('底座响应超时')); });
+  up.on('error', err => {
+    if (res.headersSent) { try { res.end(); } catch (_) { } return; }
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      error: '底座服务不可用',
+      detail: String(err.message || err),
+      upstream: CB_BASE,
+      hint: '检查 systemd: niling.service 是否 active；端口是否与 CB_BASE 一致'
+    }));
+  });
+  req.pipe(up);
+}
+
 const server = http.createServer((req, res) => {
   const pathname = new URL(req.url, 'http://x').pathname;
+  if (isBasePath(pathname)) return proxyBase(req, res, pathname);
   if (pathname.startsWith('/img/') || pathname.startsWith('/vid/') || pathname.startsWith('/file/') || pathname.startsWith('/export/')) {
     // 媒体与导出件同样是私有内容：未登录一律 401。
     // 页面里的 <img src> / <video src> 是同源请求，浏览器会自动带 cookie，所以不影响正常显示。

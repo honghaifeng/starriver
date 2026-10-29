@@ -84,6 +84,7 @@
 | **对话** | 参考图（≤9 张，资产图 + 上传图混排） | ✅ |
 | **生成** | 生图（方舟 Seedream，7 个型号，5 种比例） | ✅ |
 | **生成** | 生视频（Seedance 4 型号，参数自动落回合法档位） | ✅ |
+| **合规** | 违禁词体检：239 条客户清单 + 35 条绝对化用语，写完自动扫，标位置给替换建议 | ✅ |
 | **Automate** | 1144 条选题、56 维度筛选、批量派活、串行队列、失败可重跑 | ✅ |
 | **资产** | 图片/视频/文档统一入库；收藏、回收站、恢复、彻底删除 | ✅ |
 | **资产** | 导出 docx / 下载 md / 复制正文 / 以图为参考继续生成 | ✅ |
@@ -263,9 +264,12 @@ node scripts/selftest.mjs                       # 23 通过 / 0 失败
 | `SB_HOST` | `127.0.0.1` | 监听地址。`0.0.0.0` 才可被局域网/公网访问 |
 | `SB_DATA` | `./data` | 数据目录。体验环境指向 `./data-demo` 实现完全隔离 |
 | `SB_USER` / `SB_PASS` | `config.auth.*` | **空库首次建 owner** 时覆盖 config 里的账号（适合体验库，避免外发主密码） |
-| `CB_PYTHON` | 自动探测 | 附件抽取用的 Python 解释器（pdf 抽取依赖） |
+| `CB_PYTHON` | 自动探测 | 附件抽取用的 Python 解释器（pdf 抽取依赖 pypdf） |
+| `SB_MAX_CONTINUE` | `2` | 撞到单次输出上限后自动续写的轮数；0 = 不续写 |
+| `SB_MAX_TOKENS` | 上游默认 | 单次输出上限（排查截断时临时调小用） |
 | `NODE_BIN` | 自动探测 | `start.sh` / `start-demo.sh` 用哪个 node |
 | `PW_PREFIX` | — | 仅测试：Playwright 装在非标准位置时指过去 |
+| `BASE` | `http://127.0.0.1:7777` | 仅测试：验收脚本打哪个服务 |
 
 ---
 
@@ -444,6 +448,8 @@ node server.js
 | GET/POST/PATCH/DELETE | `/api/assets`、`/api/asset/:id` | 资产 |
 | POST | `/api/asset/:id/share` | **团队可见开关** |
 | POST | `/api/asset/:id/fav`、`/restore` | 收藏 / 恢复 |
+| POST | `/api/compliance/check` | **违禁词体检**（命中词 / 位置 / 替换建议） |
+| GET | `/api/compliance/dict` | 词表本体（客户清单 + 广告法绝对化用语） |
 
 ### 9.3 计费与组织
 

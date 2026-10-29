@@ -307,6 +307,55 @@ data: {"done":true}
 
 包含自己的资产图、上传图，以及别人**标了团队可见**的资产图。
 
+### POST `/api/compliance/check`
+
+违禁词体检。扫任意一段文本，返回命中项、位置、替换建议。
+
+```json
+{ "text": "日间瓶主打供能抗炎，激素未检出。" }
+```
+
+```json
+{
+  "summary": "2 处必须改",
+  "result": {
+    "level": "block",          // block / warn / pass
+    "total": 2,
+    "counts": { "block": 2, "warn": 0 },
+    "chars": 21,
+    "dict": { "count": 239, "builtAt": "2026-10-29", "name": "小红书违禁词" },
+    "hits": [
+      { "word": "抗炎", "cat": "efficacy", "catLabel": "功效宣称", "level": "block",
+        "sug": "（删去该项，不写「抗炎」）", "src": "清单", "kind": "dict", "count": 1,
+        "samples": [ { "start": 7, "end": 9, "before": "日间瓶主打供能", "hit": "抗炎", "after": "，激素未检出。" } ] }
+    ]
+  }
+}
+```
+
+- `samples[].start/end` 是**原文**下标（不是归一化后），可以直接用来截取高亮。
+- 同一个词出现多次合并成一条，`count` 是次数，`samples` 最多 3 个。
+- 可传 `{"absolute": false}` 关掉广告法绝对化用语检查，`{"hint": false}` 关掉七个提示字的兜底提示。
+- 空文本 → 400；超过 20 万字 → 400。
+
+`/api/chat` 的 `done` 帧也会带一份同样的 `compliance` 摘要（正文 ≥120 字才体检），
+前端把它渲染在气泡下方；历史消息里存的字段名相同。
+
+### GET `/api/compliance/dict`
+
+词表本体，用于「你凭什么说这个词不能写」的核对。
+
+```json
+{ "meta": { "name": "小红书违禁词", "customerClaim": 248, "count": 239, "builtAt": "2026-10-29" },
+  "cats": { "disease": "疾病与症状", "efficacy": "功效宣称", "…": "…" },
+  "counts": { "words": 239, "absolute": 35, "hintChars": 7 },
+  "words": [ { "w": "抗炎", "cat": "efficacy", "sug": "（删去该项…）", "src": "清单" } ],
+  "absolute": [ { "w": "最好", "cat": "absolute", "sug": "（删去绝对化表述）", "src": "广告法" } ] }
+```
+
+词表由 `scripts/build-compliance-dict.py` 从客户 PDF 生成，不手敲；
+客户补词时重跑脚本 + `git diff` 就能看出新增了哪些。
+
 ---
 
 ## 6. 生成

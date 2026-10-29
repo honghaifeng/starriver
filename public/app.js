@@ -690,6 +690,81 @@ function subHTML(s) {
 }
 
 /* 渲染一条消息（含附件、思考过程、工具产出、子 Agent） */
+/* 合规体检条：一条稿子写完，先告诉人「能不能发」。
+   pass 只占一行（这是让人放心发布的确认信号，不是噪音）；
+   有命中才展开成明细，每行给「词 + 踩了哪条线 + 建议改成什么 + 原文片段」。
+   刻意不提供「自动改」按钮：违禁词替换成建议词经常改出病句，改稿得人看一遍。 */
+function compHTML(c) {
+  if (!c) return '';
+  const cnt = c.counts || {};
+  // 摘要优先用服务端算好的（口径一致），没有就按 counts 现算 ——
+  // 历史消息里存的可能是旧结构，不能因为缺个字段就显示成「5 处需注意」。
+  const head = c.summary || [
+    cnt.block ? cnt.block + ' 处必须改' : '',
+    cnt.warn ? cnt.warn + ' 处建议改' : ''
+  ].filter(Boolean).join('，') || (c.total + ' 处需注意');
+  const dictCount = c.dictCount || (c.dict && c.dict.count) || 0;
+  const dictNote = dictCount ? `依据客户《小红书违禁词》${dictCount} 条 + 广告法绝对化用语` : '依据客户《小红书违禁词》清单';
+  if (!c.total) {
+    return `<div class="comp pass"><span class="comp-tag">合规体检</span>
+      <span class="comp-line">未发现违禁词</span></div>`;
+  }
+  const cls = c.level === 'block' ? 'block' : 'warn';
+  const rows = (c.hits || []).map(h => {
+    const s = (h.samples && h.samples[0]) || null;
+    const sample = s ? `${esc(s.before)}<mark>${esc(s.hit)}</mark>${esc(s.after)}` : '';
+    return `<div class="comp-row ${h.level}">
+      <div class="comp-w">${esc(h.word)}<em>${esc(h.catLabel || '')}${h.count > 1 ? ' · ' + h.count + ' 次' : ''}</em></div>
+      ${h.sug ? `<div class="comp-sug">→ ${esc(h.sug)}</div>` : ''}
+      ${sample ? `<div class="comp-sample">${sample}</div>` : ''}
+    </div>`;
+  }).join('');
+  const n = (c.hits || []).length;
+  return `<details class="comp ${cls}">
+    <summary><span class="comp-tag">合规体检</span>
+      <span class="comp-line">${esc(head)}</span>
+      <span class="comp-more">${n > 1 ? n + ' 类词' : ''} 展开 ›</span></summary>
+    <div class="comp-body">${rows}
+      <div class="comp-foot">${esc(dictNote)}。体检只做提示，不会自动改正文。
+        <a href="#" class="comp-fix">让它按建议改写</a></div>
+    </div>
+  </details>`;
+}
+
+/* 把体检结果拼成一条给模型的话，塞进输入框（不自动发，人还能改措辞） */
+function compFixPrompt(c) {  const words = (c.hits || []).filter(h => h.level === 'block').map(h => h.word + (h.sug ? '→' + h.sug : ''));
+  if (!words.length) return '请把上文里所有绝对化表述改成客观描述，不要用「最」「第一」「纯天然」这类词。';
+  return '请按合规要求改写上文，只改这些词，句子其他部分不要动：' + words.join('；') + '。改完把完整稿子重新输出一遍。';
+}
+
+/* 体检条上的「让它按建议改写」：按当前正文重跑一次体检，把改写要求填进输入框。
+   不自动发送 —— 改写要求本身也要人看一眼，尤其是「删去」和「改成」混在一起时。 */
+document.addEventListener('click', async e => {
+  const fix = e.target && e.target.closest && e.target.closest('.comp-fix');
+  if (!fix) return;
+  e.preventDefault();
+  const msgEl = fix.closest('.msg');
+  const bodyEl = msgEl && msgEl.querySelector('.m-text');
+  const txt = bodyEl ? (bodyEl.innerText || bodyEl.textContent || '') : '';
+  const ta = $('#chatInput');
+  if (!txt.trim() || !ta) return toast('没拿到正文，请手动复制', true);
+  const old = fix.textContent;
+  fix.textContent = '正在生成改写要求…';
+  try {
+    const r = await api('/api/compliance/check', { method: 'POST', body: JSON.stringify({ text: txt }) });
+    ta.value = compFixPrompt(r.result);
+    ta.focus();
+    toast('改写要求已填进输入框，确认后回车发送');
+  } catch (err) {
+    toast('体检失败：' + err.message, true);
+  } finally {
+    fix.textContent = old;
+  }
+});
+
+// 调试/自测可观测钩子（与 window.__S 同一惯例，只读引用，不影响业务）
+window.__compHTML = compHTML;
+
 function appendMsg(role, text, meta) {
   const scroll = $('#chatScroll');
   scroll.querySelector('.empty')?.remove();
@@ -723,6 +798,7 @@ function appendMsg(role, text, meta) {
          <span>配图 · ${esc((t.prompt || '').slice(0, 40))}${t.refCount ? ' · 参考图 ' + t.refCount : ''}</span></div>`
       : `<div class="tool-card done"><span>🎬 视频任务已提交 · ${esc(t.status || '')}</span></div>`).join('');
   }
+  if (meta && meta.compliance) tools.insertAdjacentHTML('beforeend', compHTML(meta.compliance));
   scroll.appendChild(d);
   scroll.scrollTop = scroll.scrollHeight;
   return { el: d, body, tools, think: thinkBox };
@@ -1160,6 +1236,7 @@ async function sendChat() {
             contNote.className = 'cont-note';
             contNote.textContent = `已自动续写 ${contN} 段（撞到单次输出上限）`;
           }
+          if (ev.compliance) a.tools.insertAdjacentHTML('beforeend', compHTML(ev.compliance));
           loadConvList();
         }
       }

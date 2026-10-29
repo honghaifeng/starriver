@@ -7,6 +7,45 @@
 
 ---
 
+## [1.1.0] — 2026-10-29
+
+主题：**稿子能不能发，不用等客户打回来才知道。**
+
+### 新增
+
+- **合规体检**：239 条客户违禁词 + 35 条广告法绝对化用语，稿子写完当场逐词扫一遍。
+  - 消息气泡下渲染体检条：`pass` 只占一行，命中才展开成明细（词 / 踩了哪条线 / 建议改成什么 / 原文片段高亮）。
+  - 命中位置是**原文下标**，能直接指回正文，不是模糊的「在文中出现」。
+  - 「让它按建议改写」把改写要求填进输入框，不自动发送——违禁词替换成建议词经常改出病句，得人看一眼。
+  - `POST /api/compliance/check`、`GET /api/compliance/dict` 两个出口，外部稿子也能先查一遍。
+- **词表可复现**：`scripts/build-compliance-dict.py` 从客户 PDF 生成 `lib/compliance-dict.json`。
+  客户补词时重跑 + `git diff` 就能看出新增了哪些，不再靠手抄。
+  PDF 文字流断在词中间（「HPV 感 / 染」）、相邻两行串在一起（「高血压/三高乳糖不耐乳糖不耐受」）
+  的 10 处 OCR 串行已按规则修正，带斜杠/括号的条目拆成独立可搜词。
+- **七个提示字兜底**：科/诊/疗/病/痛/毒/菌 做 warn 级提示（清单词表覆盖不到的新词也能拦住），
+  且「科普/科学/科技」明确放行——客户确认文档事项 1 说这七个字是类别特征，不是带这个字就禁。
+- **自测**：`verify-compliance.mjs`（46，一半断言在验「不该报的不能报」）、
+  `verify-compliance-ui.mjs`（21，真浏览器渲染与交互）。
+
+### 修复
+
+- 暗色主题下 `--danger-bg` / `--danger-line` / `--green-bg` / `--amber-line` 等变量是
+  **自引用**（`--danger-bg:var(--danger-bg)`），解析无效，所有告警底色实际透明。补齐真实值。
+- `lib/text-extract.js` 的 Python 候选缺项目内 venv 路径，服务器上「系统 python3 没装 pypdf」
+  就静默降级成「附件抽不出正文」。补 `.venv/bin/python`、`venv/bin/python` 两个惯例位置，
+  报错信息也改成能照做的命令（`CB_PYTHON` 指定解释器）。
+- `selftest.mjs` 硬编码 `data/uploads|images|exports`，指向体验库（`SB_DATA=data-demo`）时
+  「文件没落盘」等 5 项假红。改为跟随 `SB_DATA`。
+- 8 个验收脚本硬编码 `127.0.0.1:7777`，无法对体验库验收（会往正式库塞测试内容）。支持 `BASE`。
+
+### 测试
+
+373 项断言 0 失败：selftest 23 · verify-tenancy 89 · verify-sidebar 61 · verify-compliance 46 ·
+verify-brand 32 · verify-billing 23 · verify-ui-full 22 · ui-smoke 21 · verify-compliance-ui 21 ·
+verify-suspend 19 · verify-stream-md 9 · verify-kb-upload 7。
+
+---
+
 ## [1.0.0] — 2026-10-29
 
 首个可对外交付的版本：能发账号给外部用户体验，能被多人同时使用而互不干扰。

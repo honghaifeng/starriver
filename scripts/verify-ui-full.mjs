@@ -1,7 +1,8 @@
 import { chromium } from './_pw.mjs';
 import { USER, PASS } from './_cred.mjs';
 
-const BASE = 'http://127.0.0.1:7777';
+// BASE 可覆盖：体验库（7788）跑验收时不要指向正式库，否则会往真实数据里塞测试内容
+const BASE = process.env.BASE || 'http://127.0.0.1:7777';
 // 站点根 / 是对外介绍页；工作台（登录入口）在 /index.html
 const APP = BASE + '/index.html';
 let pass = 0, fail = 0;
