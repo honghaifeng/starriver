@@ -325,7 +325,7 @@ DEMO_INVITE=1 ./start-demo.sh    # 开放邀请码，让外人自己注册
 ### 6.4 常驻运行
 
 ```bash
-# 方式一：systemd（Linux 服务器推荐，见 docs/07-operations.md）
+# 方式一：systemd（Linux 服务器推荐，见 docs/08-operations.md）
 sudo systemctl start star-river
 
 # 方式二：macOS launchd（本机开机自启）
@@ -735,7 +735,7 @@ sudo crontab -e
 ```
 
 完整版（含 Nginx 配置、备份轮转、灰度、回滚、日志）见
-[`docs/06-deployment.md`](docs/06-deployment.md) 与 [`docs/07-operations.md`](docs/07-operations.md)。
+[`docs/07-deployment.md`](docs/07-deployment.md) 与 [`docs/08-operations.md`](docs/08-operations.md)。
 
 ---
 
