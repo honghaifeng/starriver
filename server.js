@@ -1943,6 +1943,19 @@ function serveStatic(req, res) {
     if (fs.existsSync(dirIdx)) f = dirIdx;
   }
   if (!f.startsWith(PUB) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) {
+    // /wb/ 是另一个项目的产物（六品牌内容工作台），部署时由底座仓库同步进来。
+    // 没装就老老实实说没装 —— 否则 SPA fallback 会返回星河首页，
+    // 看到的是 200 + 正常页面，排查时最难定位的一类「假成功」。
+    if (p === '/wb' || p.startsWith('/wb/')) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end('<!doctype html><meta charset="utf-8"><title>工作台未安装</title>'
+        + '<body style="font:15px/1.7 -apple-system,sans-serif;max-width:640px;margin:80px auto;padding:0 24px;color:#333">'
+        + '<h2 style="font-weight:600">内容工作台未安装</h2>'
+        + '<p>本网关没有找到 <code>public/wb/</code>。工作台是独立项目，需单独部署：</p>'
+        + '<pre style="background:#f5f5f5;padding:14px;border-radius:8px;overflow:auto">'
+        + 'bash scripts/publish-workbench.sh   # 在底座仓库里执行</pre>'
+        + '<p style="color:#888">星河本身不受影响，<a href="/">回首页</a>。</p>');
+    }
     // SPA fallback
     const idx = path.join(PUB, 'index.html');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
@@ -1962,10 +1975,13 @@ const CB_BASE = process.env.CB_BASE || '';
 // 只代理「确实属于底座」的路径，避免和星河自己的 /api/guide、/api/search 之类撞名
 const CB_API_PATHS = new Set([
   '/api/stats', '/api/list', '/api/item', '/api/raw', '/api/knowledge', '/api/report',
-  '/api/compare', '/api/top', '/api/comments', '/api/pending', '/api/raw_export',
+  '/api/compare', '/api/top', '/api/comments',
+  '/api/raw_export',
   '/api/export', '/api/xhs_archive', '/api/xhs_creators', '/api/kb_docs', '/api/kb_doc',
   '/api/kb_media', '/api/kb_export', '/api/sql'
 ]);
+// /api/pending 故意不在这里：它返回 verified=0 的待核内容，属于未校验数据，不对外。
+// 需要核队列请带 token 直连底座 /api/pending。
 function isBasePath(p) {
   if (!CB_BASE) return false;
   if (p.startsWith('/api/wb/') || p.startsWith('/api/cb/')) return true;

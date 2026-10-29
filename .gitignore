@@ -49,5 +49,7 @@ Thumbs.db
 # 备份产物
 backups/
 
-# 可选挂载的子站（品牌内容工作台，约 10MB，含第三方品牌资料，独立维护）
+# 内容工作台（/wb/）是另一个项目，不在本仓库。
+# 它由底座仓库 cosmo-platform 的 workbench/ 提供，部署时同步进来，
+# 所以 public/wb/ 这个目录即便出现，也是部署产物，不提交。
 public/wb/
