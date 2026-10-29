@@ -1,0 +1,152 @@
+{
+  "baseUrl": "https://tokenspace.io",
+  "providers": [
+    {
+      "id": "claude",
+      "label": "Claude 分组",
+      "apiKey": "sk-替换成你的上游 Key",
+      "models": [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-sonnet-5",
+        "claude-sonnet-5-5",
+        "claude-opus-5",
+        "claude-opus-5-5",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "claude-haiku-4-5-20251001"
+      ]
+    },
+    {
+      "id": "gpt-pro",
+      "label": "GPT / Qwen 分组",
+      "apiKey": "sk-替换成你的上游 Key",
+      "models": [
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "qwen3.8-max",
+        "qwen3.8-flash"
+      ]
+    }
+  ],
+  "defaultModel": "claude-sonnet-4-6",
+  "maxTokens": "4096",
+  "imageModels": [
+    "gpt-image-2",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-image",
+    "seedream-4.5",
+    "flux-1.1-pro",
+    "nano-banana",
+    "dall-e-3"
+  ],
+  "imageSize": "1024x1024",
+  "auth": {
+    "username": "admin",
+    "password": "改成你自己的密码8位以上含字母数字"
+  },
+  "port": 7777,
+  "kbTotalLimit": 100000,
+  "historyLimit": 10,
+  "historyMsgCap": 24000,
+  "subAgentLimit": 3,
+  "subAgentDepth": 1,
+  "attachInlineLimit": 6000,
+  "billing": {
+    "unit": "积分",
+    "room": "春科 · 星河 StarRiver",
+    "balance": 200000,
+    "lowBalance": 20000,
+    "defaultRate": 2,
+    "modelRate": {
+      "claude-opus-5-5": 14,
+      "claude-opus-5": 12,
+      "claude-opus-4-8": 10,
+      "claude-opus-4-7": 10,
+      "claude-opus-4-6": 9,
+      "claude-sonnet-5-5": 7,
+      "claude-sonnet-5": 6,
+      "claude-sonnet-4-6": 4,
+      "claude-fable-5": 5,
+      "claude-haiku-4-5-20251001": 1,
+      "gpt-6.1-sol": 9,
+      "gpt-6-sol": 8,
+      "gpt-6-astra": 8,
+      "gpt-6-luna": 6,
+      "gpt-5.6-sol": 6,
+      "gpt-5.6-terra": 5,
+      "gpt-5.6-luna": 5,
+      "gpt-5.5": 4,
+      "qwen3.8-max": 3,
+      "qwen3.8-flash": 0.6
+    },
+    "media": {
+      "image": 20,
+      "videoPerSecond": {
+        "doubao-seedance-2-5-260628": 60,
+        "doubao-seedance-2-0-260128": 40,
+        "doubao-seedance-2-0-fast-260128": 24,
+        "doubao-seedance-2-0-mini-260615": 12
+      }
+    }
+  },
+  "members": [
+    {
+      "name": "秋峰",
+      "role": "owner",
+      "quota": 0
+    },
+    {
+      "name": "内容组 · 小陈",
+      "role": "editor",
+      "quota": 60000
+    },
+    {
+      "name": "内容组 · 小周",
+      "role": "editor",
+      "quota": 60000
+    }
+  ],
+  "ark": {
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiKey": "替换成火山方舟的 Key",
+    "imageModel": "doubao-seedream-5-0-pro-260628",
+    "imageSize": "1024x1024",
+    "videoDefault": "doubao-seedance-2-5-260628",
+    "videoToolDefault": "doubao-seedance-2-0-mini-260615",
+    "videoModels": [
+      {
+        "id": "doubao-seedance-2-5-260628",
+        "label": "Seedance 2.5",
+        "note": "旗舰：最高 1080p，原生音频，长镜头最稳",
+        "resolutions": [
+          "480p",
+          "720p",
+          "1080p"
+        ],
+        "durations": [
+          "5",
+          "10",
+          "15"
+        ],
+        "ratios": [
+          "16:9",
+          "9:16",
+          "1:1",
+          "4:3",
+          "3:4",
+          "21:9"
+        ],
+        "audio": true
+      }
+    ]
+  },
+  "_readme": "每个字段的说明见 docs/02-configuration.md。apiKey / password 一律不要提交到仓库。"
+}

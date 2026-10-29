@@ -1,0 +1,40 @@
+[Unit]
+Description=春科 · 星河 StarRiver 内容中台
+Documentation=file:///opt/star-river/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=starriver
+Group=starriver
+WorkingDirectory=/opt/star-river
+
+# 只绑本机，由 Caddy/Nginx 反代对外（见 docs/07-deployment.md）
+Environment=NODE_ENV=production
+Environment=PORT=7777
+Environment=SB_HOST=127.0.0.1
+
+ExecStart=/usr/bin/node /opt/star-river/server.js
+
+# 崩溃自动拉起
+Restart=always
+RestartSec=3
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# 日志交给 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=star-river
+
+# 加固：只允许写自己的数据目录
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/star-river/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

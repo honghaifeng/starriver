@@ -1,0 +1,46 @@
+# Caddy 配置示例 —— 自动申请并续期 HTTPS 证书
+# 安装：https://caddyserver.com/docs/install
+# 位置：/etc/caddy/Caddyfile
+# 生效：sudo systemctl reload caddy
+
+{
+	# 换成你的邮箱，Let's Encrypt 到期提醒发这里
+	email admin@example.com
+}
+
+# ① 正式环境
+star.example.com {
+	encode zstd gzip
+
+	# SSE（/api/chat）必须关掉缓冲，否则流式会攒成一坨再吐
+	reverse_proxy 127.0.0.1:7777 {
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# 单条消息可能带参考图，放宽请求体
+	request_body {
+		max_size 50MB
+	}
+
+	log {
+		output file /var/log/caddy/star-river.log {
+			roll_size 20MB
+			roll_keep 5
+		}
+	}
+}
+
+# ② 体验环境（可选，单独子域名更干净）
+demo.example.com {
+	reverse_proxy 127.0.0.1:7788 {
+		flush_interval -1
+	}
+}
