@@ -10,6 +10,7 @@ const { extractText } = require('./lib/text-extract');
 const { writeDocx } = require('./lib/docx');
 const { TOOL_PROMPT, ToolTap, toolResultMessage } = require('./lib/chat-tools');
 const identity = require('./lib/identity');
+const refMedia = require('./lib/ref-media');
 const cfg = require('./config.json');
 
 // 数据目录可切换：体验环境用独立目录，真实数据一个字节都不碰
@@ -766,27 +767,50 @@ function canSeeAsset(me, a) {
   if (identity.canRead(me, a.ownerId)) return true;
   return a.visibility === 'team' && identity.isActive(me);
 }
+// 品牌产品图是平台公共素材，不是某个人的私人物品：
+// 命名带「产品图·」前缀的上传对所有在职成员可读（只能读，不能改不能删）。
+// 不加这条的话，产品图只有上传者自己能用，别人生成图照样画错比例。
+function isSharedProductImage(up) {
+  return !!up && /^产品图·/.test(String(up.name || ''));
+}
 function refFileOf(id, me) {
   const a = store.data.assets.find(x => x.id === id && x.type === 'image' && !x.deleted);
   if (a && canSeeAsset(me, a) && a.imageUrl && a.imageUrl.startsWith('/img/')) return path.join(IMGDIR, path.basename(a.imageUrl));
   const up = store.data.uploads.find(x => x.id === id && /^image\//.test(x.mime || ''));
-  if (up && identity.canRead(me, up.ownerId)) return path.join(UPLOADDIR, up.file);
+  if (up && (identity.canRead(me, up.ownerId) || (isSharedProductImage(up) && identity.isActive(me)))) {
+    return path.join(UPLOADDIR, up.file);
+  }
   return null;
 }
-function refToDataUri(file) {
-  try {
-    const tmp = path.join(os.tmpdir(), 'cb-ref-' + crypto.randomBytes(4).toString('hex') + '.jpg');
-    execFileSync('/usr/bin/sips', ['-Z', '768', '-s', 'format', 'jpeg', file, '--out', tmp], { stdio: 'ignore' });
-    const buf = fs.readFileSync(tmp); try { fs.unlinkSync(tmp); } catch (e) { }
-    return 'data:image/jpeg;base64,' + buf.toString('base64');
-  } catch (e) { return null; }
+// 参考图 → data URI（三级兜底，见 lib/ref-media.js）
+function refToDataUri(file) { return refMedia.refToDataUri(file); }
+
+// 自动产品参考图：提示词里出现「瓶/礼盒/产品名」时，挂一张品牌方定稿图。
+// 目的是锁住两瓶的比例与配色——这是模型最容易画错、而且错了最丢人的地方。
+// 只挂 1 张：挂多了会过度约束构图（想拍场景反而被白底图带跑）。
+// 关掉的办法：config.json 里写 "autoProductRefs": false。
+function autoProductRefs(prompt, me) {
+  if (cfg.autoProductRefs === false) return [];
+  const ups = store.data.uploads.filter(x => isSharedProductImage(x) && /^image\//.test(x.mime || '') && identity.isActive(me));
+  if (!ups.length) return [];
+  const name = refMedia.pickProductRefName(prompt, ups.map(x => x.name));
+  if (!name) return [];
+  const hit = ups.find(x => x.name === name);
+  return hit ? [hit.id] : [];
 }
 
 async function arkGenerateImage({ prompt, ratio, size, refIds, me }) {
   const finalSize = size && /^\d+x\d+$/.test(size) ? size : (RATIO_SIZE[ratio] || cfg.ark.imageSize);
   const body = { model: cfg.ark.imageModel, prompt, size: finalSize, response_format: 'url', watermark: false };
-  const imgs = (refIds || []).map(id => refFileOf(id, me)).filter(Boolean).slice(0, 9).map(refToDataUri).filter(Boolean);
+  // 用户没选参考图、但提示词里出现产品时，自动挂上品牌方定稿图。
+  // 不这么做的话，模型只能按「黑瓶金盖」几个字自由发挥，两瓶比例必然画歪。
+  const autoIds = (refIds && refIds.length) ? [] : autoProductRefs(prompt, me);
+  const allIds = [...(refIds || []), ...autoIds];
+  const files = allIds.map(id => refFileOf(id, me)).filter(Boolean).slice(0, 9);
+  const imgs = files.map(refToDataUri).filter(Boolean);
   if (imgs.length) body.image = imgs;
+  if (allIds.length && !imgs.length) console.error('[ref] 传了 ' + allIds.length + ' 个参考图，但全部转换失败，本次退化为纯文生图');
+  if (autoIds.length) console.log('[ref] 自动附加产品参考图', autoIds.length, '张');
   const call = async payload => {
     const r = await fetch(cfg.ark.baseUrl + '/images/generations', { method: 'POST', headers: arkHeaders(), body: JSON.stringify(payload) });
     const j = await r.json().catch(() => null);
@@ -1400,7 +1424,7 @@ async function route(req, res) {
     const q = (u.searchParams.get('search') || '').toLowerCase();
     const imgs = store.data.assets.filter(a => a.type === 'image' && !a.deleted && a.imageUrl && canSeeAsset(me, a))
       .map(a => ({ id: a.id, title: a.title, url: a.imageUrl, src: 'asset', createdAt: a.createdAt }));
-    const ups = store.data.uploads.filter(x => identity.canRead(me, x.ownerId) && (/^image\//.test(x.mime || '') || /\.(png|jpe?g|webp|gif)$/i.test(x.name || '')))
+    const ups = store.data.uploads.filter(x => (identity.canRead(me, x.ownerId) || (isSharedProductImage(x) && identity.isActive(me))) && (/^image\//.test(x.mime || '') || /\.(png|jpe?g|webp|gif)$/i.test(x.name || '')))
       .map(x => ({ id: x.id, title: x.name, url: '/file/' + x.file, src: 'upload', createdAt: x.createdAt }));
     let list = [...ups, ...imgs].sort((a, b) => b.createdAt - a.createdAt);
     if (q) list = list.filter(x => String(x.title || '').toLowerCase().includes(q));
@@ -1807,6 +1831,8 @@ function mediaOwner(p) {
   const base = path.basename(p);
   if (p.startsWith('/file/')) {
     const up = store.data.uploads.find(x => x.file === base);
+    // 品牌产品图是公共素材：标记 shared，让所有在职成员都能取
+    if (up && isSharedProductImage(up)) return { ownerId: up.ownerId, shared: true };
     return up ? { ownerId: up.ownerId } : null;
   }
   if (p.startsWith('/export/')) {
@@ -1885,7 +1911,7 @@ const server = http.createServer((req, res) => {
     // 附件与导出件带「谁的」一说，必须按归属放行；别人的文件一律 404（不告诉它存在）
     // 资产图/视频例外：主人标了「团队可见」就放行 —— 否则列表里能看到、图却挂掉
     const own = mediaOwner(pathname);
-    const sharedOk = own && own.visibility === 'team' && identity.isActive(me);
+    const sharedOk = own && (own.visibility === 'team' || own.shared) && identity.isActive(me);
     if (own && !sharedOk && !identity.canRead(me, own.ownerId)) { res.writeHead(404); return res.end(); }
     return serveMedia(req, res, pathname);
   }
